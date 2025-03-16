@@ -403,3 +403,77 @@ app.get('/api/user/profile', authenticateUser, async (req, res) => {
     res.status(500).json({ error: 'Failed to get user profile', message: error.message });
   }
 });
+
+app.get('/api/user/medium-profile', authenticateUser, async (req, res) => {
+  try {
+    if (!req.user.mediumId || !req.user.accessToken) {
+      return res.status(400).json({ error: 'Medium account not connected' });
+    }
+    
+    const response = await axios.get(`${MEDIUM_API_URL}/me`, {
+      headers: {
+        'Authorization': `Bearer ${req.user.accessToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    
+    res.json(response.data.data);
+  } catch (error) {
+    handleApiError(error, res);
+  }
+});
+
+app.get('/api/user/publications', authenticateUser, async (req, res) => {
+  try {
+    if (!req.user.mediumId || !req.user.accessToken) {
+      return res.status(400).json({ error: 'Medium account not connected' });
+    }
+    
+    const response = await axios.get(`${MEDIUM_API_URL}/users/${req.user.mediumId}/publications`, {
+      headers: {
+        'Authorization': `Bearer ${req.user.accessToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    
+    res.json(response.data.data);
+  } catch (error) {
+    handleApiError(error, res);
+  }
+});
+
+// ============================
+// Posts Routes
+// ============================
+
+app.get('/api/posts', authenticateUser, async (req, res) => {
+  try {
+    const { status, page = 1, limit = 10 } = req.query;
+    const skip = (page - 1) * limit;
+    
+    const query = { userId: req.user.userId };
+    
+    if (status) {
+      query.publishStatus = status;
+    }
+    
+    const posts = await Post.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    const total = await Post.countDocuments(query);
+    
+    res.json({
+      posts,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    logger.error('Get posts error:', error);
+    res.status(500).json({ error: 'Failed to get posts', message: error.message });
+  }
+});
