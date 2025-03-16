@@ -323,3 +323,64 @@ app.get('/api/auth/medium', authenticateUser, (req, res) => {
   
   res.json({ authUrl });
 });
+
+app.get('/api/auth/medium/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const userId = req.query.userId;
+    
+    if (!code || !state || !userId) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+    
+    // Validate state if Redis is available
+    if (redisClient) {
+      const storedState = await getAsync(`medium_state:${userId}`);
+      if (storedState !== state) {
+        return res.status(400).json({ error: 'Invalid state parameter' });
+      }
+    }
+    
+    const user = await User.findOne({ userId });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Exchange the code for an access token
+    const tokenResponse = await axios.post('https://api.medium.com/v1/tokens', {
+      code,
+      client_id: process.env.MEDIUM_CLIENT_ID,
+      client_secret: process.env.MEDIUM_CLIENT_SECRET,
+      grant_type: 'authorization_code',
+      redirect_uri: process.env.MEDIUM_REDIRECT_URI
+    });
+    
+    const { access_token, refresh_token, expires_at } = tokenResponse.data;
+    
+    // Get user details from Medium
+    const userResponse = await axios.get(`${MEDIUM_API_URL}/me`, {
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    
+    const mediumUser = userResponse.data.data;
+    
+    // Update user with Medium details
+    user.mediumId = mediumUser.id;
+    user.accessToken = access_token;
+    user.refreshToken = refresh_token || null;
+    user.tokenExpiry = expires_at ? new Date(expires_at * 1000) : null;
+    user.updatedAt = new Date();
+    
+    await user.save();
+    
+    res.redirect(`${process.env.FRONTEND_URL}/medium-connected?success=true`);
+  } catch (error) {
+    logger.error('Medium OAuth callback error:', error);
+    res.redirect(`${process.env.FRONTEND_URL}/medium-connected?success=false&error=${encodeURIComponent('Failed to connect Medium account')}`);
+  }
+});
