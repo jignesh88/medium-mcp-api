@@ -77,3 +77,65 @@ if (process.env.REDIS_URL) {
   getAsync = promisify(redisClient.get).bind(redisClient);
   setAsync = promisify(redisClient.set).bind(redisClient);
 }
+
+// Set up logging
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  defaultMeta: { service: 'medium-mcp' },
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    })
+  ]
+});
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/medium-mcp', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => {
+  logger.info('Connected to MongoDB');
+})
+.catch((error) => {
+  logger.error('MongoDB connection error:', error);
+});
+
+// Define schemas
+const UserSchema = new mongoose.Schema({
+  userId: { type: String, required: true, unique: true },
+  email: { type: String, required: true },
+  name: { type: String },
+  mediumId: { type: String },
+  accessToken: { type: String },
+  refreshToken: { type: String },
+  tokenExpiry: { type: Date },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const PostSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  mediumPostId: { type: String },
+  title: { type: String, required: true },
+  content: { type: String, required: true },
+  contentFormat: { type: String, enum: ['html', 'markdown'], default: 'markdown' },
+  tags: [{ type: String }],
+  canonicalUrl: { type: String },
+  publishStatus: { type: String, enum: ['public', 'draft', 'unlisted'], default: 'draft' },
+  license: { type: String },
+  publicationId: { type: String },
+  scheduledAt: { type: Date },
+  published: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
