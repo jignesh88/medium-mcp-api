@@ -82,3 +82,85 @@ A Model Context Protocol (MCP) server that integrates with Medium's API to enabl
    ```bash
    npm start
    ```
+
+## 🔐 Medium API Setup
+
+1. Create a Medium developer application at https://medium.com/me/applications
+2. Set the callback URL to `http://your-domain.com/api/auth/medium/callback`
+3. Copy your Client ID and Client Secret to your `.env` file
+
+## 📚 API Documentation
+
+### Authentication Endpoints
+
+#### Register a new user
+
+```
+POST /api/auth/register
+```
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "name": "John Doe"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "User registered successfully",
+  "token": "jwt_token_here",
+  "user": {
+    "userId": "user_id",
+    "email": "user@example.com",
+    "name": "John Doe"
+  }
+}
+```
+
+#### Login
+
+```
+POST /api/auth/login
+```
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Login successful",
+  "token": "jwt_token_here",
+  "user": {
+    "userId": "user_id",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "mediumConnected": true
+  }
+}
+```
+
+#### Connect Medium Account
+
+```
+GET /api/auth/medium
+```
+
+**Headers:**
+```
+Authorization: Bearer jwt_token_here
+```
+
+**Response:**
+```json
+{
+  "authUrl": "https://medium.com/m/oauth/authorize?client_id=..."
+}
+```
