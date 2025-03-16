@@ -287,3 +287,95 @@ image: [file]
   "size": 12345
 }
 ```
+
+## 🔄 Integrating with the MCP Server
+
+### Example: Publishing a post with Node.js
+
+```javascript
+const axios = require('axios');
+
+const API_URL = 'http://your-domain.com';
+const TOKEN = 'your_jwt_token';
+
+async function publishPost() {
+  try {
+    // Create a draft post
+    const post = await axios.post(`${API_URL}/api/posts`, {
+      title: 'My Awesome Article',
+      content: '# Hello Medium\n\nThis is my first post published via the MCP API.',
+      contentFormat: 'markdown',
+      tags: ['api', 'medium', 'tutorial'],
+      publishStatus: 'draft'
+    }, {
+      headers: {
+        'Authorization': `Bearer ${TOKEN}`
+      }
+    });
+    
+    // Publish the post to Medium
+    const published = await axios.post(`${API_URL}/api/posts/${post.data._id}/publish`, {}, {
+      headers: {
+        'Authorization': `Bearer ${TOKEN}`
+      }
+    });
+    
+    console.log('Post published successfully!', published.data);
+  } catch (error) {
+    console.error('Error publishing post:', error.response?.data || error.message);
+  }
+}
+
+publishPost();
+```
+
+## 📅 Scheduled Publishing
+
+The server supports scheduling posts for future publication. When creating or updating a post, include a `scheduledAt` field with an ISO timestamp:
+
+```json
+{
+  "title": "Scheduled Post",
+  "content": "This will be published automatically.",
+  "scheduledAt": "2025-03-20T12:00:00.000Z"
+}
+```
+
+The server will automatically publish the post at the specified time if Redis is configured.
+
+## 🛡️ Security Considerations
+
+- Always use HTTPS in production
+- Rotate your JWT secret regularly
+- Set up proper monitoring and logging
+- Store sensitive data in environment variables or a secure vault
+- Implement proper CORS policies
+
+## 🔧 Configuration
+
+All configuration is done through environment variables:
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| PORT | Server port (default: 3000) | No |
+| MONGODB_URI | MongoDB connection string | Yes |
+| REDIS_URL | Redis connection string | No |
+| JWT_SECRET | Secret for JWT tokens | Yes |
+| MEDIUM_CLIENT_ID | Medium API client ID | Yes |
+| MEDIUM_CLIENT_SECRET | Medium API client secret | Yes |
+| MEDIUM_REDIRECT_URI | OAuth callback URL | Yes |
+| FRONTEND_URL | URL for frontend redirects | Yes |
+
+## 📜 License
+
+MIT
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
