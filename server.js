@@ -1,0 +1,79 @@
+/**
+ * Medium API MCP Server
+ * A microservice for interacting with Medium's API to publish content and manage user accounts
+ */
+
+const express = require('express');
+const axios = require('axios');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const dotenv = require('dotenv');
+const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+const rateLimit = require('express-rate-limit');
+const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
+const morgan = require('morgan');
+const redis = require('redis');
+const { promisify } = require('util');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const TurndownService = require('turndown');
+const showdown = require('showdown');
+const winston = require('winston');
+
+// Initialize environment variables
+dotenv.config();
+
+// Initialize Express app
+const app = express();
+const PORT = process.env.PORT || 3000;
+const MEDIUM_API_URL = 'https://api.medium.com/v1';
+
+// Set up middleware
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(morgan('combined'));
+
+// Set up rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+app.use('/api/', apiLimiter);
+
+// Set up storage for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+const upload = multer({ storage });
+
+// Set up Redis for caching and queue management
+let redisClient;
+let getAsync;
+let setAsync;
+
+if (process.env.REDIS_URL) {
+  redisClient = redis.createClient({
+    url: process.env.REDIS_URL
+  });
+  
+  redisClient.on('error', (error) => {
+    logger.error('Redis Error:', error);
+  });
+  
+  getAsync = promisify(redisClient.get).bind(redisClient);
+  setAsync = promisify(redisClient.set).bind(redisClient);
+}
