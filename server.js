@@ -198,3 +198,80 @@ const formatForMedium = (content, contentFormat) => {
   }
   return content;
 };
+
+const handleApiError = (error, res) => {
+  logger.error('Medium API Error:', error);
+  
+  if (error.response) {
+    // The request was made and the server responded with a status code
+    // that falls out of the range of 2xx
+    const status = error.response.status;
+    const data = error.response.data;
+    
+    if (status === 429) {
+      // Rate limiting
+      return res.status(429).json({ 
+        error: 'Rate limited by Medium API', 
+        retryAfter: error.response.headers['retry-after'] || 60 
+      });
+    } else if (status === 401) {
+      return res.status(401).json({ error: 'Medium authorization invalid or expired' });
+    } else {
+      return res.status(status).json({ 
+        error: 'Medium API error', 
+        details: data 
+      });
+    }
+  } else if (error.request) {
+    // The request was made but no response was received
+    return res.status(503).json({ error: 'Medium API unavailable' });
+  } else {
+    // Something happened in setting up the request that triggered an Error
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+};
+
+// ============================
+// Auth Routes
+// ============================
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, name } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    
+    const existingUser = await User.findOne({ email });
+    
+    if (existingUser) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+    
+    const userId = uuidv4();
+    
+    const user = new User({
+      userId,
+      email,
+      name: name || email.split('@')[0]
+    });
+    
+    await user.save();
+    
+    const token = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    
+    res.status(201).json({
+      message: 'User registered successfully',
+      token,
+      user: {
+        userId: user.userId,
+        email: user.email,
+        name: user.name
+      }
+    });
+  } catch (error) {
+    logger.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed', message: error.message });
+  }
+});
