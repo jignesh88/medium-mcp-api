@@ -139,3 +139,62 @@ const PostSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
+
+// Define models
+const User = mongoose.model('User', UserSchema);
+const Post = mongoose.model('Post', PostSchema);
+
+// ============================
+// Authentication Middleware
+// ============================
+
+const authenticateUser = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    const user = await User.findOne({ userId: decoded.userId });
+    
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    // Check if Medium token is expired and needs refresh
+    if (user.tokenExpiry && new Date(user.tokenExpiry) < new Date()) {
+      // Implement token refresh logic here if Medium API supports it
+      logger.info(`Token expired for user ${user.userId}, attempting refresh`);
+      
+      // For now, just notify the user that re-authentication is needed
+      return res.status(401).json({ error: 'Medium authorization expired, please reconnect your account' });
+    }
+    
+    req.user = user;
+    next();
+  } catch (error) {
+    logger.error('Authentication error:', error);
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+};
+
+// ============================
+// Helper Functions
+// ============================
+
+const formatForMedium = (content, contentFormat) => {
+  if (contentFormat === 'markdown' && content) {
+    // If content is in HTML but we need Markdown
+    const turndownService = new TurndownService();
+    return turndownService.turndown(content);
+  } else if (contentFormat === 'html' && content) {
+    // If content is in Markdown but we need HTML
+    const converter = new showdown.Converter();
+    return converter.makeHtml(content);
+  }
+  return content;
+};
