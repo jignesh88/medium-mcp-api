@@ -477,3 +477,124 @@ app.get('/api/posts', authenticateUser, async (req, res) => {
     res.status(500).json({ error: 'Failed to get posts', message: error.message });
   }
 });
+
+app.get('/api/posts/:postId', authenticateUser, async (req, res) => {
+  try {
+    const post = await Post.findOne({
+      _id: req.params.postId,
+      userId: req.user.userId
+    });
+    
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    
+    res.json(post);
+  } catch (error) {
+    logger.error('Get post error:', error);
+    res.status(500).json({ error: 'Failed to get post', message: error.message });
+  }
+});
+
+app.post('/api/posts', authenticateUser, async (req, res) => {
+  try {
+    const {
+      title,
+      content,
+      contentFormat = 'markdown',
+      tags,
+      canonicalUrl,
+      publishStatus = 'draft',
+      license,
+      publicationId,
+      scheduledAt
+    } = req.body;
+    
+    if (!title || !content) {
+      return res.status(400).json({ error: 'Title and content are required' });
+    }
+    
+    const post = new Post({
+      userId: req.user.userId,
+      title,
+      content,
+      contentFormat,
+      tags: tags || [],
+      canonicalUrl,
+      publishStatus,
+      license,
+      publicationId,
+      scheduledAt: scheduledAt ? new Date(scheduledAt) : null
+    });
+    
+    await post.save();
+    
+    // If scheduled, add to the queue
+    if (scheduledAt && redisClient) {
+      const scheduleTime = new Date(scheduledAt).getTime();
+      const now = Date.now();
+      
+      if (scheduleTime > now) {
+        await setAsync(`post_schedule:${post._id}`, JSON.stringify({
+          postId: post._id,
+          userId: req.user.userId,
+          scheduledAt
+        }), 'EX', Math.floor((scheduleTime - now) / 1000));
+        
+        logger.info(`Post ${post._id} scheduled for ${scheduledAt}`);
+      }
+    }
+    
+    // Publish immediately if requested
+    if (publishStatus !== 'draft' && !scheduledAt) {
+      // Only attempt to publish if Medium account is connected
+      if (req.user.mediumId && req.user.accessToken) {
+        try {
+          let publishEndpoint = `${MEDIUM_API_URL}/users/${req.user.mediumId}/posts`;
+          
+          // If publishing to a publication
+          if (publicationId) {
+            publishEndpoint = `${MEDIUM_API_URL}/publications/${publicationId}/posts`;
+          }
+          
+          const formattedContent = formatForMedium(content, contentFormat);
+          
+          const publishData = {
+            title,
+            contentFormat: contentFormat === 'html' ? 'html' : 'markdown',
+            content: formattedContent,
+            tags: tags || [],
+            publishStatus,
+            license: license || ''
+          };
+          
+          if (canonicalUrl) {
+            publishData.canonicalUrl = canonicalUrl;
+          }
+          
+          const response = await axios.post(publishEndpoint, publishData, {
+            headers: {
+              'Authorization': `Bearer ${req.user.accessToken}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          });
+          
+          const mediumPost = response.data.data;
+          
+          post.mediumPostId = mediumPost.id;
+          post.published = true;
+          await post.save();
+        } catch (error) {
+          logger.error('Medium publishing error:', error);
+          // Continue anyway - we've saved the post locally
+        }
+      }
+    }
+    
+    res.status(201).json(post);
+  } catch (error) {
+    logger.error('Create post error:', error);
+    res.status(500).json({ error: 'Failed to create post', message: error.message });
+  }
+});
