@@ -275,3 +275,51 @@ app.post('/api/auth/register', async (req, res) => {
     res.status(500).json({ error: 'Registration failed', message: error.message });
   }
 });
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    const token = jwt.sign({ userId: user.userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    
+    res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: {
+        userId: user.userId,
+        email: user.email,
+        name: user.name,
+        mediumConnected: !!user.mediumId
+      }
+    });
+  } catch (error) {
+    logger.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed', message: error.message });
+  }
+});
+
+// Medium OAuth Routes
+app.get('/api/auth/medium', authenticateUser, (req, res) => {
+  const clientId = process.env.MEDIUM_CLIENT_ID;
+  const redirectUri = process.env.MEDIUM_REDIRECT_URI;
+  const state = crypto.randomBytes(16).toString('hex');
+  
+  // Store state in Redis for validation on callback
+  if (redisClient) {
+    setAsync(`medium_state:${req.user.userId}`, state, 'EX', 3600); // 1 hour expiry
+  }
+  
+  const authUrl = `https://medium.com/m/oauth/authorize?client_id=${clientId}&scope=basicProfile,publishPost&state=${state}&response_type=code&redirect_uri=${redirectUri}`;
+  
+  res.json({ authUrl });
+});
