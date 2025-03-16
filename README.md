@@ -164,3 +164,126 @@ Authorization: Bearer jwt_token_here
   "authUrl": "https://medium.com/m/oauth/authorize?client_id=..."
 }
 ```
+
+### Content Management Endpoints
+
+#### Create a Post
+
+```
+POST /api/posts
+```
+
+**Headers:**
+```
+Authorization: Bearer jwt_token_here
+```
+
+**Request Body:**
+```json
+{
+  "title": "My New Post",
+  "content": "# Markdown Content\n\nThis is my post content.",
+  "contentFormat": "markdown",
+  "tags": ["programming", "tutorial"],
+  "publishStatus": "draft",
+  "publicationId": "optional_publication_id"
+}
+```
+
+**Response:**
+```json
+{
+  "_id": "post_id",
+  "userId": "user_id",
+  "title": "My New Post",
+  "content": "# Markdown Content\n\nThis is my post content.",
+  "contentFormat": "markdown",
+  "tags": ["programming", "tutorial"],
+  "publishStatus": "draft",
+  "createdAt": "2025-03-16T07:00:00.000Z",
+  "updatedAt": "2025-03-16T07:00:00.000Z"
+}
+```
+
+#### Publish a Post to Medium
+
+```
+POST /api/posts/:postId/publish
+```
+
+**Headers:**
+```
+Authorization: Bearer jwt_token_here
+```
+
+**Response:**
+```json
+{
+  "message": "Post published successfully",
+  "post": {
+    "_id": "post_id",
+    "mediumPostId": "medium_post_id",
+    "title": "My New Post",
+    "published": true,
+    ...
+  }
+}
+```
+
+#### Get User's Posts
+
+```
+GET /api/posts?status=draft&page=1&limit=10
+```
+
+**Headers:**
+```
+Authorization: Bearer jwt_token_here
+```
+
+**Response:**
+```json
+{
+  "posts": [
+    {
+      "_id": "post_id",
+      "title": "My New Post",
+      ...
+    }
+  ],
+  "total": 15,
+  "page": 1,
+  "pages": 2
+}
+```
+
+### Media Management
+
+#### Upload an Image
+
+```
+POST /api/media/upload
+```
+
+**Headers:**
+```
+Authorization: Bearer jwt_token_here
+Content-Type: multipart/form-data
+```
+
+**Form Data:**
+```
+image: [file]
+```
+
+**Response:**
+```json
+{
+  "message": "File uploaded successfully",
+  "filePath": "/uploads/filename.jpg",
+  "fileName": "filename.jpg",
+  "originalName": "my-image.jpg",
+  "mimeType": "image/jpeg",
+  "size": 12345
+}
+```
