@@ -275,3 +275,131 @@ app.post('/api/auth/register', async (req, res) => {
     res.status(500).json({ error: 'Registration failed', message: error.message });
   }
 });
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    const token = jwt.sign({ userId: user.userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    
+    res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: {
+        userId: user.userId,
+        email: user.email,
+        name: user.name,
+        mediumConnected: !!user.mediumId
+      }
+    });
+  } catch (error) {
+    logger.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed', message: error.message });
+  }
+});
+
+// Medium OAuth Routes
+app.get('/api/auth/medium', authenticateUser, (req, res) => {
+  const clientId = process.env.MEDIUM_CLIENT_ID;
+  const redirectUri = process.env.MEDIUM_REDIRECT_URI;
+  const state = crypto.randomBytes(16).toString('hex');
+  
+  // Store state in Redis for validation on callback
+  if (redisClient) {
+    setAsync(`medium_state:${req.user.userId}`, state, 'EX', 3600); // 1 hour expiry
+  }
+  
+  const authUrl = `https://medium.com/m/oauth/authorize?client_id=${clientId}&scope=basicProfile,publishPost&state=${state}&response_type=code&redirect_uri=${redirectUri}`;
+  
+  res.json({ authUrl });
+});
+
+app.get('/api/auth/medium/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const userId = req.query.userId;
+    
+    if (!code || !state || !userId) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+    
+    // Validate state if Redis is available
+    if (redisClient) {
+      const storedState = await getAsync(`medium_state:${userId}`);
+      if (storedState !== state) {
+        return res.status(400).json({ error: 'Invalid state parameter' });
+      }
+    }
+    
+    const user = await User.findOne({ userId });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Exchange the code for an access token
+    const tokenResponse = await axios.post('https://api.medium.com/v1/tokens', {
+      code,
+      client_id: process.env.MEDIUM_CLIENT_ID,
+      client_secret: process.env.MEDIUM_CLIENT_SECRET,
+      grant_type: 'authorization_code',
+      redirect_uri: process.env.MEDIUM_REDIRECT_URI
+    });
+    
+    const { access_token, refresh_token, expires_at } = tokenResponse.data;
+    
+    // Get user details from Medium
+    const userResponse = await axios.get(`${MEDIUM_API_URL}/me`, {
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    
+    const mediumUser = userResponse.data.data;
+    
+    // Update user with Medium details
+    user.mediumId = mediumUser.id;
+    user.accessToken = access_token;
+    user.refreshToken = refresh_token || null;
+    user.tokenExpiry = expires_at ? new Date(expires_at * 1000) : null;
+    user.updatedAt = new Date();
+    
+    await user.save();
+    
+    res.redirect(`${process.env.FRONTEND_URL}/medium-connected?success=true`);
+  } catch (error) {
+    logger.error('Medium OAuth callback error:', error);
+    res.redirect(`${process.env.FRONTEND_URL}/medium-connected?success=false&error=${encodeURIComponent('Failed to connect Medium account')}`);
+  }
+});
+
+// ============================
+// User Routes
+// ============================
+
+app.get('/api/user/profile', authenticateUser, async (req, res) => {
+  try {
+    res.json({
+      userId: req.user.userId,
+      email: req.user.email,
+      name: req.user.name,
+      mediumConnected: !!req.user.mediumId,
+      mediumId: req.user.mediumId
+    });
+  } catch (error) {
+    logger.error('Get user profile error:', error);
+    res.status(500).json({ error: 'Failed to get user profile', message: error.message });
+  }
+});
